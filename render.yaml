@@ -3,7 +3,7 @@ services:
     name: kiro-admin-api
     runtime: node
     rootDir: server
-    plan: starter
+    plan: free
     buildCommand: npm ci
     startCommand: npm start
     healthCheckPath: /health
