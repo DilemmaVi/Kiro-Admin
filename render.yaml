@@ -22,9 +22,3 @@ services:
         value: none
       - key: TRUST_PROXY
         value: "true"
-      - key: DB_PATH
-        value: /var/data/kiro.db
-    disks:
-      - name: kiro-admin-db
-        mountPath: /var/data
-        sizeGB: 1
