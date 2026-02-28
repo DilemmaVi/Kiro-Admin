@@ -558,6 +558,32 @@ cd server
 node src/index.js
 ```
 
+### Vercel + Render 部署
+
+#### 1) 后端部署到 Render
+
+本项目已提供 `render.yaml`，推荐直接用 Blueprint 导入。
+
+关键环境变量：
+
+- `CORS_ORIGIN=https://你的-vercel-域名.vercel.app`
+- `COOKIE_SECURE=true`
+- `COOKIE_SAMESITE=none`
+- `TRUST_PROXY=true`
+- `DB_PATH=/var/data/kiro.db`（配合 Render Persistent Disk）
+
+> 注意：Render 不挂载持久化磁盘时，SQLite 数据会在重启/重新部署后丢失。
+
+#### 2) 前端部署到 Vercel
+
+项目根目录已提供 `vercel.json`（Vite + SPA Rewrite）。
+
+在 Vercel 项目环境变量中设置：
+
+- `VITE_API_URL=https://你的-render-服务域名.onrender.com`
+
+重新部署后即可完成前后端分离访问。
+
 ---
 
 ## 📝 常见问题
@@ -655,4 +681,3 @@ MIT License
 - 发送邮件 4936089@qq.com
 
 ---
-

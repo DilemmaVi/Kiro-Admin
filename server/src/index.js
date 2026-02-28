@@ -1,9 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
-const path = require('path');
 const config = require('./config/config');
-const { db, initDatabase } = require('./config/database');
+const { db, initDatabase, dbPath } = require('./config/database');
 
 const authRoutes = require('./routes/auth');
 const tokenRoutes = require('./routes/tokens');
@@ -16,21 +15,22 @@ const proxyRoutes = require('./routes/proxy');
 
 const app = express();
 
+if (config.trustProxy) {
+  app.set('trust proxy', 1);
+}
+
 // 中间件
 app.use(cors({
-  origin: config.corsOrigin,
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (config.corsOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
   credentials: true
 }));
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// 创建data目录
-const fs = require('fs');
-const dataDir = path.join(__dirname, '../data');
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
 
 // API路由
 app.use('/api/auth', authRoutes);
@@ -60,8 +60,8 @@ initDatabase()
   .then(() => {
     app.listen(config.port, () => {
       console.log(`🚀 Kiro Admin Server 运行在 http://localhost:${config.port}`);
-      console.log(`📊 数据库位置: ${path.join(dataDir, 'kiro.db')}`);
-      console.log(`🔗 CORS允许来源: ${config.corsOrigin}`);
+      console.log(`📊 数据库位置: ${dbPath}`);
+      console.log(`🔗 CORS允许来源: ${config.corsOrigins.join(', ')}`);
       console.log(`✨ 管理后台已就绪`);
     });
   })

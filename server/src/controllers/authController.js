@@ -39,6 +39,8 @@ exports.getCaptcha = (req, res) => {
   // 设置 cookie 存储验证码 ID
   res.cookie('captchaId', captchaId, {
     httpOnly: true,
+    secure: config.cookieSecure,
+    sameSite: config.cookieSameSite,
     maxAge: 5 * 60 * 1000 // 5分钟
   });
 
