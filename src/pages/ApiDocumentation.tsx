@@ -13,7 +13,7 @@ const ApiDocumentation: React.FC = () => {
     message.success(`${label} 已复制到剪贴板`);
   };
 
-  const CodeBlock: React.FC<{ code: string; language?: string }> = ({ code, language = 'bash' }) => (
+  const CodeBlock: React.FC<{ code: string; language?: string }> = ({ code }) => (
     <div style={{ position: 'relative' }}>
       <pre style={{
         background: '#f5f5f5',
