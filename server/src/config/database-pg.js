@@ -2,34 +2,57 @@ const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 
 // PostgreSQL 连接配置
-const pool = new Pool({
+const poolConfig = {
   host: process.env.DB_POSTGRESDB_HOST || 'localhost',
   port: parseInt(process.env.DB_POSTGRESDB_PORT || '5432'),
   database: process.env.DB_POSTGRESDB_DATABASE || 'postgres',
   user: process.env.DB_POSTGRESDB_USER || 'postgres',
   password: process.env.DB_POSTGRESDB_PASSWORD || '',
-  ssl: process.env.DB_POSTGRESDB_SSL === 'true' ? { rejectUnauthorized: false } : false,
   max: 20, // 最大连接数
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
-});
+  connectionTimeoutMillis: 20000, // 增加超时时间以适应 Supabase
+};
+
+// Supabase 和其他云数据库通常需要 SSL
+// 默认启用 SSL，除非明确设置为 false
+if (process.env.DB_POSTGRESDB_SSL !== 'false') {
+  poolConfig.ssl = { 
+    rejectUnauthorized: false // 允许自签名证书
+  };
+}
+
+const pool = new Pool(poolConfig);
 
 // 测试连接
 pool.on('connect', () => {
-  console.log('PostgreSQL 数据库连接成功');
+  console.log('✓ PostgreSQL 数据库连接成功');
 });
 
 pool.on('error', (err) => {
-  console.error('PostgreSQL 连接错误:', err);
+  console.error('✗ PostgreSQL 连接错误:', err.message);
+  if (err.code) {
+    console.error(`  错误代码: ${err.code}`);
+  }
 });
 
 /**
  * 初始化数据库表结构
  */
 async function initDatabase() {
-  const client = await pool.connect();
+  let client;
   
   try {
+    // 测试连接
+    console.log('正在连接 PostgreSQL 数据库...');
+    console.log(`  Host: ${poolConfig.host}`);
+    console.log(`  Port: ${poolConfig.port}`);
+    console.log(`  Database: ${poolConfig.database}`);
+    console.log(`  User: ${poolConfig.user}`);
+    console.log(`  SSL: ${poolConfig.ssl ? 'enabled' : 'disabled'}`);
+    
+    client = await pool.connect();
+    console.log('✓ 数据库连接测试成功');
+    
     await client.query('BEGIN');
 
     // 创建用户表
@@ -140,13 +163,17 @@ async function initDatabase() {
     }
 
     await client.query('COMMIT');
-    console.log('PostgreSQL 数据库初始化完成');
+    console.log('✓ PostgreSQL 数据库初始化完成');
   } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('PostgreSQL 数据库初始化失败:', error);
+    if (client) {
+      await client.query('ROLLBACK');
+    }
+    console.error('✗ PostgreSQL 数据库初始化失败:', error.message);
     throw error;
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 }
 

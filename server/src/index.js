@@ -61,21 +61,28 @@ initDatabase()
   .then(() => migrateDatabase())
   .then(() => {
     const dbType = process.env.DB_TYPE || 'sqlite';
-    const dbInfo = dbType === 'postgres' 
-      ? `${process.env.DB_POSTGRESDB_HOST}:${process.env.DB_POSTGRESDB_PORT}/${process.env.DB_POSTGRESDB_DATABASE}`
-      : (process.env.DB_PATH || './data/kiro.db');
+    let dbInfo;
+    
+    if (dbType === 'postgres') {
+      dbInfo = `${process.env.DB_POSTGRESDB_HOST}:${process.env.DB_POSTGRESDB_PORT}/${process.env.DB_POSTGRESDB_DATABASE}`;
+    } else {
+      dbInfo = process.env.DB_PATH || './data/kiro.db';
+    }
     
     app.listen(config.port, () => {
-      console.log(`🚀 Kiro Admin Server 运行在 http://localhost:${config.port}`);
-      console.log(`📊 数据库类型: ${dbType.toUpperCase()}`);
-      console.log(`📊 数据库位置: ${dbInfo}`);
-      console.log(`🔗 CORS允许来源: ${config.corsOrigins.join(', ')}`);
-      console.log(`🔐 OAuth 回调地址: ${process.env.OAUTH_REDIRECT_URI || 'http://localhost:3001/api/auth/oauth/callback'}`);
-      console.log(`✨ 管理后台已就绪`);
+      console.log(`\n🚀 Kiro Admin Server 运行在 http://localhost:${config.port}`);
+      console.log(`📊 数据库: ${dbType.toUpperCase()} - ${dbInfo}`);
+      console.log(`🔗 CORS: ${config.corsOrigins.join(', ')}`);
+      console.log(`🔐 OAuth: ${process.env.OAUTH_REDIRECT_URI || 'http://localhost:3001/api/auth/oauth/callback'}`);
+      console.log(`✨ 服务已就绪\n`);
     });
   })
   .catch((err) => {
-    console.error('服务器启动失败:', err);
+    console.error('\n✗ 服务器启动失败:', err.message);
+    console.error('\n请检查：');
+    console.error('  1. 数据库连接配置是否正确');
+    console.error('  2. 数据库服务是否正常运行');
+    console.error('  3. 网络连接是否正常\n');
     process.exit(1);
   });
 
