@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Form, Input, Button, message, Card, Divider, Space, Modal, Typography, Spin } from 'antd';
 import { UserOutlined, LockOutlined, SafetyOutlined, CloudOutlined, CopyOutlined, CheckCircleOutlined } from '@ant-design/icons';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import api from '../services/api';
 import './Login.css';
@@ -16,7 +16,6 @@ const Login: React.FC = () => {
   const [deviceAuthInfo, setDeviceAuthInfo] = useState<any>(null);
   const [polling, setPolling] = useState(false);
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const { login } = useAuthStore();
 
   const refreshCaptcha = () => {
