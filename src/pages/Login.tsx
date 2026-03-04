@@ -1,20 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Form, Input, Button, message, Card, Divider, Space, Modal, Typography, Spin } from 'antd';
-import { UserOutlined, LockOutlined, SafetyOutlined, CloudOutlined, CopyOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { Form, Input, Button, message, Card } from 'antd';
+import { UserOutlined, LockOutlined, SafetyOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import api from '../services/api';
 import './Login.css';
 
-const { Text, Paragraph } = Typography;
-
 const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
-  const [oauthLoading, setOauthLoading] = useState(false);
   const [captchaUrl, setCaptchaUrl] = useState('');
-  const [deviceAuthModal, setDeviceAuthModal] = useState(false);
-  const [deviceAuthInfo, setDeviceAuthInfo] = useState<any>(null);
-  const [polling, setPolling] = useState(false);
   const navigate = useNavigate();
   const { login } = useAuthStore();
 
@@ -39,100 +33,6 @@ const Login: React.FC = () => {
       refreshCaptcha();
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleDeviceAuth = async () => {
-    setOauthLoading(true);
-    try {
-      const response = await api.post('/api/auth/device-auth/initiate');
-      const authInfo = response.data;
-      
-      setDeviceAuthInfo(authInfo);
-      setDeviceAuthModal(true);
-      setOauthLoading(false);
-      
-      // 自动打开 AWS 授权页面
-      setTimeout(() => {
-        if (authInfo.verificationUriComplete) {
-          window.open(authInfo.verificationUriComplete, '_blank');
-        } else if (authInfo.verificationUri) {
-          window.open(authInfo.verificationUri, '_blank');
-        }
-      }, 500); // 延迟 500ms 确保弹窗已显示
-      
-      // 3秒后自动开始轮询（给用户时间查看验证码）
-      setTimeout(() => {
-        startPolling(authInfo.sessionId);
-      }, 3000);
-    } catch (error: any) {
-      message.error(error.response?.data?.message || 'AWS 设备授权初始化失败');
-      setOauthLoading(false);
-    }
-  };
-
-  const startPolling = async (sessionId: string) => {
-    setPolling(true);
-    
-    const poll = async () => {
-      try {
-        const response = await api.post('/api/auth/device-auth/poll', { sessionId });
-        const { status, token, user, message: msg, tokenInfo } = response.data;
-        
-        if (status === 'success') {
-          // 授权成功
-          setPolling(false);
-          setDeviceAuthModal(false);
-          login(token, user);
-          
-          // 显示成功消息，包含 token 信息
-          if (tokenInfo?.created) {
-            message.success({
-              content: `AWS OAuth 登录成功！Refresh Token 已自动添加到 Token 管理`,
-              duration: 5
-            });
-          } else {
-            message.success('AWS OAuth 登录成功！');
-          }
-          
-          navigate('/');
-        } else if (status === 'pending') {
-          // 继续等待
-          setTimeout(poll, (deviceAuthInfo?.interval || 5) * 1000);
-        } else if (status === 'expired') {
-          // 已过期
-          setPolling(false);
-          message.warning(msg || '授权已过期，请重新开始');
-          setDeviceAuthModal(false);
-        } else {
-          // 错误
-          setPolling(false);
-          message.error(msg || '授权失败');
-          setDeviceAuthModal(false);
-        }
-      } catch (error: any) {
-        setPolling(false);
-        message.error('轮询失败，请重试');
-        setDeviceAuthModal(false);
-      }
-    };
-    
-    // 开始第一次轮询
-    setTimeout(poll, 2000);
-  };
-
-  const copyUserCode = () => {
-    if (deviceAuthInfo?.userCode) {
-      navigator.clipboard.writeText(deviceAuthInfo.userCode);
-      message.success('验证码已复制');
-    }
-  };
-
-  const openVerificationUrl = () => {
-    if (deviceAuthInfo?.verificationUriComplete) {
-      window.open(deviceAuthInfo.verificationUriComplete, '_blank');
-    } else if (deviceAuthInfo?.verificationUri) {
-      window.open(deviceAuthInfo.verificationUri, '_blank');
     }
   };
 
@@ -240,106 +140,10 @@ const Login: React.FC = () => {
           </Form.Item>
         </Form>
 
-        <Divider plain>或</Divider>
-
-        <Space direction="vertical" style={{ width: '100%' }} size="middle">
-          <Button
-            icon={<CloudOutlined />}
-            onClick={handleDeviceAuth}
-            loading={oauthLoading}
-            className="oauth-button"
-            block
-            size="large"
-          >
-            使用 AWS Builder ID 登录
-          </Button>
-        </Space>
-
         <div className="login-footer">
           <p>默认账号：admin / admin123</p>
-          <p style={{ fontSize: '12px', color: '#888', marginTop: '8px' }}>
-            AWS 登录将自动获取 refresh token
-          </p>
         </div>
       </Card>
-
-      {/* 设备授权弹窗 */}
-      <Modal
-        title="AWS Builder ID 设备授权"
-        open={deviceAuthModal}
-        onCancel={() => {
-          setDeviceAuthModal(false);
-          setPolling(false);
-        }}
-        footer={null}
-        width={500}
-      >
-        <div style={{ textAlign: 'center', padding: '20px 0' }}>
-          {polling ? (
-            <>
-              <Spin size="large" />
-              <Paragraph style={{ marginTop: 20, fontSize: 16 }}>
-                等待授权中...
-              </Paragraph>
-              <Text type="secondary">
-                请在浏览器中完成授权后，此窗口将自动关闭
-              </Text>
-            </>
-          ) : (
-            <>
-              <CheckCircleOutlined style={{ fontSize: 48, color: '#52c41a', marginBottom: 20 }} />
-              <Paragraph style={{ fontSize: 18, fontWeight: 600, marginBottom: 20 }}>
-                AWS 授权页面已自动打开
-              </Paragraph>
-              
-              <div style={{ textAlign: 'left', background: '#f5f5f5', padding: 20, borderRadius: 8, marginBottom: 20 }}>
-                <div style={{ marginBottom: 15 }}>
-                  <Text strong>步骤 1：复制验证码</Text>
-                  <div style={{ display: 'flex', alignItems: 'center', marginTop: 8 }}>
-                    <Input
-                      value={deviceAuthInfo?.userCode}
-                      readOnly
-                      size="large"
-                      style={{ flex: 1, marginRight: 8, fontSize: 20, fontWeight: 'bold', textAlign: 'center', letterSpacing: 4 }}
-                    />
-                    <Button
-                      icon={<CopyOutlined />}
-                      onClick={copyUserCode}
-                      size="large"
-                    >
-                      复制
-                    </Button>
-                  </div>
-                </div>
-                
-                <div>
-                  <Text strong>步骤 2：在授权页面输入验证码</Text>
-                  <div style={{ marginTop: 8, padding: 12, background: '#fff', borderRadius: 4, border: '1px solid #d9d9d9' }}>
-                    <Text type="secondary" style={{ fontSize: 13 }}>
-                      • 授权页面已在新标签页打开<br />
-                      • 如未打开，请点击下方按钮手动打开<br />
-                      • 输入验证码并使用 AWS Builder ID 登录
-                    </Text>
-                  </div>
-                  <Button
-                    type="default"
-                    block
-                    size="large"
-                    onClick={openVerificationUrl}
-                    style={{ marginTop: 8 }}
-                  >
-                    手动打开授权页面
-                  </Button>
-                </div>
-              </div>
-              
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                验证码将在 {Math.floor((deviceAuthInfo?.expiresIn || 0) / 60)} 分钟后过期
-              </Text>
-            </>
-          )}
-        </div>
-      </Modal>
 
       {/* 装饰元素 */}
       <div className="decoration decoration-1"></div>
