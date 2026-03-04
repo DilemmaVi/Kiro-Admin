@@ -1,9 +1,9 @@
 const axios = require('axios');
 const crypto = require('crypto');
 
-// AWS SSO OIDC 配置
-const AWS_SSO_CONFIG = {
-  // AWS SSO OIDC 端点
+// Kiro OAuth 配置
+const KIRO_OAUTH_CONFIG = {
+  // Kiro OAuth 端点
   region: 'us-east-1',
   registerClientEndpoint: 'https://oidc.us-east-1.amazonaws.com/client/register',
   deviceAuthorizationEndpoint: 'https://oidc.us-east-1.amazonaws.com/device_authorization',
@@ -11,9 +11,10 @@ const AWS_SSO_CONFIG = {
   refreshEndpoint: 'https://prod.us-east-1.auth.desktop.kiro.dev/refreshToken',
   
   // Kiro 客户端配置
-  clientName: 'kiro-web-client',
+  clientName: 'kiro-desktop-client',
   clientType: 'public',
   grantTypes: ['urn:ietf:params:oauth:grant-type:device_code', 'refresh_token'],
+  scopes: ['codewhisperer:completions', 'codewhisperer:analysis', 'codewhisperer:conversations'],
   
   // AWS Builder ID 起始 URL
   startUrl: 'https://view.awsapps.com/start'
@@ -26,16 +27,17 @@ const AWS_SSO_CONFIG = {
 async function registerClient() {
   try {
     const response = await axios.post(
-      AWS_SSO_CONFIG.registerClientEndpoint,
+      KIRO_OAUTH_CONFIG.registerClientEndpoint,
       {
-        clientName: AWS_SSO_CONFIG.clientName,
-        clientType: AWS_SSO_CONFIG.clientType,
-        grantTypes: AWS_SSO_CONFIG.grantTypes,
-        scopes: ['sso:account:access']
+        clientName: KIRO_OAUTH_CONFIG.clientName,
+        clientType: KIRO_OAUTH_CONFIG.clientType,
+        grantTypes: KIRO_OAUTH_CONFIG.grantTypes,
+        scopes: KIRO_OAUTH_CONFIG.scopes
       },
       {
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'User-Agent': 'KiroIDE'
         },
         timeout: 10000
       }
@@ -60,15 +62,17 @@ async function registerClient() {
 async function startDeviceAuthorization(clientId, clientSecret) {
   try {
     const response = await axios.post(
-      AWS_SSO_CONFIG.deviceAuthorizationEndpoint,
+      KIRO_OAUTH_CONFIG.deviceAuthorizationEndpoint,
       {
         clientId: clientId,
         clientSecret: clientSecret,
-        startUrl: AWS_SSO_CONFIG.startUrl
+        startUrl: KIRO_OAUTH_CONFIG.startUrl,
+        scopes: KIRO_OAUTH_CONFIG.scopes
       },
       {
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'User-Agent': 'KiroIDE'
         },
         timeout: 10000
       }
@@ -100,7 +104,7 @@ async function pollForToken(clientId, clientSecret, deviceCode, interval = 5, ma
     
     try {
       const response = await axios.post(
-        AWS_SSO_CONFIG.tokenEndpoint,
+        KIRO_OAUTH_CONFIG.tokenEndpoint,
         {
           clientId: clientId,
           clientSecret: clientSecret,
@@ -109,7 +113,8 @@ async function pollForToken(clientId, clientSecret, deviceCode, interval = 5, ma
         },
         {
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'User-Agent': 'KiroIDE'
           },
           timeout: 10000
         }
@@ -172,11 +177,12 @@ async function pollForToken(clientId, clientSecret, deviceCode, interval = 5, ma
 
 /**
  * 使用 refresh token 获取新的 access token
+ * 注意：Kiro 使用的是 Social Token 刷新端点，不需要 clientId/clientSecret
  */
 async function refreshAccessToken(refreshToken) {
   try {
     const response = await axios.post(
-      AWS_SSO_CONFIG.refreshEndpoint,
+      KIRO_OAUTH_CONFIG.refreshEndpoint,
       {
         refreshToken: refreshToken
       },
@@ -200,16 +206,19 @@ async function refreshAccessToken(refreshToken) {
 
 /**
  * 验证 access token 是否有效
+ * 通过调用 CodeWhisperer API 检查用量限制
  */
 async function validateAccessToken(accessToken) {
   try {
-    // 尝试调用 AWS API 验证 token
+    // 调用 CodeWhisperer API 验证 token
     const response = await axios.get(
       'https://codewhisperer.us-east-1.amazonaws.com/getUsageLimits',
       {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'x-amz-user-agent': 'aws-sdk-js/1.0.0 KiroAdmin-1.0.0',
+          'user-agent': 'aws-sdk-js/1.0.0 ua/2.1 os/darwin lang/js md/nodejs KiroAdmin-1.0.0'
         },
         params: {
           isEmailRequired: true,
@@ -222,23 +231,31 @@ async function validateAccessToken(accessToken) {
     
     return {
       valid: true,
-      userInfo: response.data.userInfo || null
+      userInfo: response.data.userInfo || null,
+      usageLimits: response.data
     };
   } catch (error) {
-    console.warn('Token 验证失败，但这可能是正常的（SSO token 可能不能直接用于 CodeWhisperer）:', error.message);
+    console.warn('Token 验证失败:', error.message);
     
-    // 即使验证失败，我们也认为 token 是有效的
-    // 因为它是从 AWS SSO 正式获取的
+    // 如果是 403 错误，说明 token 格式正确但可能没有权限
+    if (error.response?.status === 403) {
+      return {
+        valid: true,
+        userInfo: null,
+        warning: 'Token 有效但可能没有 CodeWhisperer 权限'
+      };
+    }
+    
+    // 其他错误认为 token 无效
     return {
-      valid: true,
-      userInfo: null,
-      warning: 'Token 验证跳过（SSO token）'
+      valid: false,
+      error: error.message
     };
   }
 }
 
 module.exports = {
-  AWS_SSO_CONFIG,
+  KIRO_OAUTH_CONFIG,
   registerClient,
   startDeviceAuthorization,
   pollForToken,
