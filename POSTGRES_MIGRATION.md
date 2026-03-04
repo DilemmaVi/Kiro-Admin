@@ -13,20 +13,21 @@ npm install
 
 ### 2. 配置环境变量
 
-根据你提供的数据库信息，在 `server/.env` 文件中添加：
+在 `server/.env` 文件中添加：
 
 ```env
 # 数据库类型：sqlite 或 postgres
 DB_TYPE=postgres
 
-# PostgreSQL 配置
-DB_POSTGRESDB_HOST=aws-0-us-west-1.pooler.supabase.com
+# PostgreSQL 配置（示例：Supabase）
+DB_POSTGRESDB_HOST=your-project.pooler.supabase.com
 DB_POSTGRESDB_PORT=6543
 DB_POSTGRESDB_DATABASE=postgres
-DB_POSTGRESDB_USER=postgres.yzbxyywztuzalskxtiod
-DB_POSTGRESDB_PASSWORD=H*fbnN5xhv7#f3v
+DB_POSTGRESDB_USER=postgres.your-project-ref
+DB_POSTGRESDB_PASSWORD=your-password
 DB_POSTGRESDB_SCHEMA=public
-DB_POSTGRESDB_SSL=true
+# SSL 默认启用，本地开发可设置为 false
+# DB_POSTGRESDB_SSL=false
 ```
 
 ### 3. 初始化 PostgreSQL 数据库
@@ -213,7 +214,7 @@ SELECT * FROM users WHERE id = $1
 ### 连接失败
 ```bash
 # 检查 PostgreSQL 是否可访问
-psql -h aws-0-us-west-1.pooler.supabase.com -p 6543 -U postgres.yzbxyywztuzalskxtiod -d postgres
+psql -h your-host -p 5432 -U your-user -d your-database
 ```
 
 ### 查看日志
