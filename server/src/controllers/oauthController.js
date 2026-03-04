@@ -121,12 +121,21 @@ exports.pollAuthStatus = async (req, res) => {
     );
     
     // 成功获取 token
+    console.log('✅ 成功获取 token');
+    console.log('  - accessToken:', tokens.accessToken ? `${tokens.accessToken.substring(0, 20)}...` : 'null');
+    console.log('  - refreshToken:', tokens.refreshToken ? `${tokens.refreshToken.substring(0, 30)}...` : 'null');
+    
     oauthSessions.delete(sessionId);
     
     // 验证 token
+    console.log('🔍 验证 access token...');
     const validation = await validateAccessToken(tokens.accessToken);
+    console.log('  - valid:', validation.valid);
+    console.log('  - userInfo:', validation.userInfo);
+    console.log('  - warning:', validation.warning);
     
     if (!validation.valid) {
+      console.error('❌ Token 验证失败');
       return res.json({
         status: 'error',
         message: 'Token 验证失败'
@@ -134,7 +143,8 @@ exports.pollAuthStatus = async (req, res) => {
     }
     
     // 查找或创建用户
-    const userEmail = validation.userInfo?.email || `aws_user_${Date.now()}`;
+    const userEmail = validation.userInfo?.email || `aws_sso_user_${Date.now()}`;
+    console.log('👤 用户邮箱:', userEmail);
     
     db.get('SELECT * FROM users WHERE username = ?', [userEmail], (err, user) => {
       if (err) {
