@@ -271,3 +271,162 @@ exports.getOAuthStatus = (req, res) => {
     }
   );
 };
+
+/**
+ * Token 管理页面的 OAuth 授权（不用于登录，只获取 token）
+ */
+exports.initiateTokenAuth = async (req, res) => {
+  try {
+    // 1. 注册客户端（或使用缓存的客户端信息）
+    let clientInfo = oauthSessions.get('client_info');
+    
+    if (!clientInfo || Date.now() > clientInfo.expiresAt) {
+      console.log('注册新的 OIDC 客户端...');
+      const registration = await registerClient();
+      
+      clientInfo = {
+        clientId: registration.clientId,
+        clientSecret: registration.clientSecret,
+        expiresAt: registration.clientSecretExpiresAt * 1000,
+        timestamp: Date.now()
+      };
+      
+      oauthSessions.set('client_info', clientInfo);
+    }
+    
+    // 2. 启动设备授权
+    const deviceAuth = await startDeviceAuthorization(
+      clientInfo.clientId,
+      clientInfo.clientSecret
+    );
+    
+    // 3. 生成会话 ID
+    const sessionId = require('crypto').randomBytes(16).toString('hex');
+    
+    // 4. 存储会话信息（标记为 token 管理模式）
+    oauthSessions.set(sessionId, {
+      clientId: clientInfo.clientId,
+      clientSecret: clientInfo.clientSecret,
+      deviceCode: deviceAuth.deviceCode,
+      interval: deviceAuth.interval,
+      expiresAt: Date.now() + (deviceAuth.expiresIn * 1000),
+      timestamp: Date.now(),
+      mode: 'token_management', // 标记为 token 管理模式
+      userId: req.user.id // 保存当前用户 ID
+    });
+    
+    // 5. 返回给前端
+    res.json({
+      sessionId: sessionId,
+      userCode: deviceAuth.userCode,
+      verificationUri: deviceAuth.verificationUri,
+      verificationUriComplete: deviceAuth.verificationUriComplete,
+      expiresIn: deviceAuth.expiresIn,
+      interval: deviceAuth.interval
+    });
+  } catch (error) {
+    console.error('Token auth initiation error:', error);
+    res.status(500).json({ 
+      error: '设备授权初始化失败',
+      message: error.message 
+    });
+  }
+};
+
+/**
+ * Token 管理页面的授权状态轮询
+ */
+exports.pollTokenAuthStatus = async (req, res) => {
+  const { sessionId } = req.body;
+  
+  if (!sessionId) {
+    return res.status(400).json({ error: '缺少 sessionId' });
+  }
+  
+  const session = oauthSessions.get(sessionId);
+  
+  if (!session) {
+    return res.status(404).json({ 
+      error: '会话不存在或已过期',
+      status: 'expired'
+    });
+  }
+  
+  // 检查是否过期
+  if (Date.now() > session.expiresAt) {
+    oauthSessions.delete(sessionId);
+    return res.json({ 
+      status: 'expired',
+      message: '授权已过期，请重新开始'
+    });
+  }
+  
+  try {
+    // 尝试获取 token（单次尝试，不阻塞）
+    const tokens = await pollForToken(
+      session.clientId,
+      session.clientSecret,
+      session.deviceCode,
+      session.interval,
+      1 // 只尝试一次
+    );
+    
+    // 成功获取 token
+    console.log('✅ Token 管理模式：成功获取 token');
+    
+    oauthSessions.delete(sessionId);
+    
+    // 验证 token
+    console.log('🔍 验证 access token...');
+    const validation = await validateAccessToken(tokens.accessToken);
+    console.log('  - valid:', validation.valid);
+    
+    if (!validation.valid) {
+      console.error('❌ Token 验证失败');
+      return res.json({
+        status: 'error',
+        message: 'Token 验证失败'
+      });
+    }
+    
+    // 直接存储 token，不创建用户会话
+    db.run(
+      `INSERT INTO tokens (auth_type, refresh_token, client_id, client_secret, description, user_id)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      ['IdC', tokens.refreshToken, session.clientId, session.clientSecret, 
+       'AWS OAuth 授权自动获取', session.userId],
+      function (err) {
+        if (err) {
+          console.error('❌ 存储 refresh token 失败:', err);
+          return res.status(500).json({
+            status: 'error',
+            error: '存储 token 失败',
+            message: err.message
+          });
+        }
+        
+        const tokenId = this.lastID;
+        console.log(`✅ 成功存储 refresh token (ID: ${tokenId})`);
+        
+        res.json({
+          status: 'success',
+          tokenId: tokenId,
+          message: 'Token 已成功添加'
+        });
+      }
+    );
+  } catch (error) {
+    // 授权待处理或其他错误
+    if (error.message.includes('authorization_pending') || error.message.includes('授权')) {
+      return res.json({
+        status: 'pending',
+        message: '等待用户授权'
+      });
+    }
+    
+    res.json({
+      status: 'error',
+      message: error.message
+    });
+  }
+};

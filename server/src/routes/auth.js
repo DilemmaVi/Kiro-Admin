@@ -14,4 +14,8 @@ router.post('/device-auth/initiate', oauthController.initiateDeviceAuth);
 router.post('/device-auth/poll', oauthController.pollAuthStatus);
 router.get('/oauth/status', authMiddleware, oauthController.getOAuthStatus);
 
+// Token 管理页面的 OAuth 授权（需要登录）
+router.post('/token-auth/initiate', authMiddleware, oauthController.initiateTokenAuth);
+router.post('/token-auth/poll', authMiddleware, oauthController.pollTokenAuthStatus);
+
 module.exports = router;

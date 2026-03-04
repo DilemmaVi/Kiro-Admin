@@ -13,8 +13,11 @@ const TokenManagement: React.FC = () => {
   const [checkingTokens, setCheckingTokens] = useState<Set<number>>(new Set());
   const [modalVisible, setModalVisible] = useState(false);
   const [statsModalVisible, setStatsModalVisible] = useState(false);
+  const [oauthModalVisible, setOauthModalVisible] = useState(false);
   const [editingToken, setEditingToken] = useState<Token | null>(null);
   const [selectedTokenStats, setSelectedTokenStats] = useState<any>(null);
+  const [oauthInfo, setOauthInfo] = useState<any>(null);
+  const [oauthPolling, setOauthPolling] = useState(false);
   const [form] = Form.useForm();
 
   useEffect(() => {
@@ -159,6 +162,60 @@ const TokenManagement: React.FC = () => {
     setEditingToken(null);
     form.resetFields();
     setModalVisible(true);
+  };
+
+  const handleOAuthAdd = async () => {
+    try {
+      setLoading(true);
+      const response = await api.post('/api/auth/token-auth/initiate');
+      setOauthInfo(response.data);
+      setOauthModalVisible(true);
+      
+      // 自动打开授权页面
+      window.open(response.data.verificationUriComplete, '_blank');
+      
+      // 延迟 3 秒后开始轮询
+      setTimeout(() => {
+        startOAuthPolling(response.data.sessionId);
+      }, 3000);
+    } catch (error: any) {
+      message.error('启动 OAuth 授权失败: ' + (error.response?.data?.message || error.message));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const startOAuthPolling = async (sessionId: string) => {
+    setOauthPolling(true);
+    
+    const poll = async () => {
+      try {
+        const response = await api.post('/api/auth/token-auth/poll', { sessionId });
+        
+        if (response.data.status === 'success') {
+          message.success('Token 已成功添加！');
+          setOauthModalVisible(false);
+          setOauthPolling(false);
+          fetchTokens(); // 刷新列表
+        } else if (response.data.status === 'pending') {
+          // 继续轮询
+          setTimeout(() => poll(), 5000);
+        } else if (response.data.status === 'expired') {
+          message.error('授权已过期，请重新开始');
+          setOauthModalVisible(false);
+          setOauthPolling(false);
+        } else {
+          message.error('授权失败: ' + response.data.message);
+          setOauthModalVisible(false);
+          setOauthPolling(false);
+        }
+      } catch (error: any) {
+        message.error('轮询失败: ' + (error.response?.data?.message || error.message));
+        setOauthPolling(false);
+      }
+    };
+    
+    poll();
   };
 
   const handleEdit = (record: Token) => {
@@ -351,11 +408,19 @@ const TokenManagement: React.FC = () => {
             批量检测
           </Button>
           <Button
+            type="default"
+            icon={<ApiOutlined />}
+            onClick={handleOAuthAdd}
+            loading={loading}
+          >
+            AWS OAuth 授权
+          </Button>
+          <Button
             type="primary"
             icon={<PlusOutlined />}
             onClick={handleAdd}
           >
-            添加Token
+            手动添加Token
           </Button>
           <Button
             icon={<ExportOutlined />}
@@ -419,7 +484,7 @@ const TokenManagement: React.FC = () => {
 
       {/* 添加/编辑 Modal */}
       <Modal
-        title={editingToken ? '编辑Token' : '添加Token'}
+        title={editingToken ? '编辑Token' : '手动添加Token'}
         open={modalVisible}
         onOk={handleSubmit}
         onCancel={() => setModalVisible(false)}
@@ -481,6 +546,84 @@ const TokenManagement: React.FC = () => {
             </Form.Item>
           )}
         </Form>
+      </Modal>
+
+      {/* AWS OAuth 授权 Modal */}
+      <Modal
+        title="AWS Builder ID OAuth 授权"
+        open={oauthModalVisible}
+        onCancel={() => {
+          setOauthModalVisible(false);
+          setOauthPolling(false);
+        }}
+        footer={[
+          <Button 
+            key="close" 
+            onClick={() => {
+              setOauthModalVisible(false);
+              setOauthPolling(false);
+            }}
+            disabled={oauthPolling}
+          >
+            取消
+          </Button>
+        ]}
+        width={500}
+        closable={!oauthPolling}
+        maskClosable={false}
+      >
+        {oauthInfo && (
+          <div style={{ textAlign: 'center', padding: '20px 0' }}>
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ fontSize: 16, marginBottom: 12 }}>
+                请在浏览器中完成授权
+              </div>
+              <div style={{ fontSize: 14, color: '#666', marginBottom: 20 }}>
+                授权页面已自动打开，如未打开请手动访问：
+              </div>
+              <a 
+                href={oauthInfo.verificationUriComplete} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                style={{ fontSize: 14 }}
+              >
+                {oauthInfo.verificationUri}
+              </a>
+            </div>
+
+            <div style={{ 
+              background: '#f5f5f5', 
+              padding: '20px', 
+              borderRadius: 8,
+              marginBottom: 24
+            }}>
+              <div style={{ fontSize: 14, color: '#666', marginBottom: 8 }}>
+                验证码
+              </div>
+              <div style={{ 
+                fontSize: 32, 
+                fontWeight: 'bold', 
+                letterSpacing: 8,
+                fontFamily: 'monospace'
+              }}>
+                {oauthInfo.userCode}
+              </div>
+            </div>
+
+            {oauthPolling && (
+              <div style={{ marginTop: 20 }}>
+                <LoadingOutlined style={{ fontSize: 24, marginBottom: 12 }} />
+                <div style={{ color: '#666' }}>
+                  等待授权完成...
+                </div>
+              </div>
+            )}
+
+            <div style={{ fontSize: 12, color: '#999', marginTop: 20 }}>
+              授权完成后，Token 将自动添加到列表中
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* 统计详情 Modal */}
