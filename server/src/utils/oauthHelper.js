@@ -115,12 +115,32 @@ async function pollForToken(clientId, clientSecret, deviceCode, interval = 5, ma
         }
       );
       
+      // 打印原始响应以便调试
+      console.log('🎉 Token API 响应:', JSON.stringify(response.data, null, 2));
+      
       // 成功获取 token
+      // AWS OIDC API 可能返回 camelCase 或 snake_case
+      const accessToken = response.data.accessToken || response.data.access_token;
+      const refreshToken = response.data.refreshToken || response.data.refresh_token;
+      const expiresIn = response.data.expiresIn || response.data.expires_in;
+      const tokenType = response.data.tokenType || response.data.token_type || 'Bearer';
+      
+      console.log('📦 解析后的 token:');
+      console.log('  - accessToken:', accessToken ? `${accessToken.substring(0, 30)}...` : 'null');
+      console.log('  - refreshToken:', refreshToken ? `${refreshToken.substring(0, 30)}...` : 'null');
+      console.log('  - expiresIn:', expiresIn);
+      console.log('  - tokenType:', tokenType);
+      
+      if (!accessToken || !refreshToken) {
+        console.error('❌ Token 字段缺失！完整响应:', response.data);
+        throw new Error('Token 响应格式错误：缺少 accessToken 或 refreshToken');
+      }
+      
       return {
-        accessToken: response.data.accessToken,
-        refreshToken: response.data.refreshToken,
-        expiresIn: response.data.expiresIn,
-        tokenType: response.data.tokenType || 'Bearer'
+        accessToken,
+        refreshToken,
+        expiresIn,
+        tokenType
       };
     } catch (error) {
       const errorCode = error.response?.data?.error;

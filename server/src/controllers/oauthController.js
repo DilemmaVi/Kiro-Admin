@@ -156,10 +156,12 @@ exports.pollAuthStatus = async (req, res) => {
       
       const handleUserLogin = (userId) => {
         // 存储 refresh token
+        // 注意：SSO OIDC 的 refresh token 需要 clientId 和 clientSecret 才能刷新
+        // 所以我们需要将认证类型改为 'IdC' 并存储客户端信息
         db.run(
-          `INSERT INTO tokens (auth_type, refresh_token, description, user_id)
-           VALUES (?, ?, ?, ?)`,
-          ['Social', tokens.refreshToken, 'AWS SSO 设备授权自动获取', userId],
+          `INSERT INTO tokens (auth_type, refresh_token, client_id, client_secret, description, user_id)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          ['IdC', tokens.refreshToken, session.clientId, session.clientSecret, 'AWS SSO 设备授权自动获取', userId],
           function (err) {
             if (err) {
               console.error('❌ 存储 refresh token 失败:', err);
@@ -172,6 +174,8 @@ exports.pollAuthStatus = async (req, res) => {
             
             const tokenId = this.lastID;
             console.log(`✅ 成功存储 refresh token (ID: ${tokenId}) 到用户 ${userId}`);
+            console.log(`  - 认证类型: IdC (SSO OIDC)`);
+            console.log(`  - Client ID: ${session.clientId.substring(0, 20)}...`);
             
             // 生成 JWT
             const jwtToken = jwt.sign(
