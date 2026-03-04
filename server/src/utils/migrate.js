@@ -8,15 +8,39 @@ function migrateDatabase() {
   return new Promise((resolve, reject) => {
     console.log('开始数据库迁移...');
     
+    const dbType = process.env.DB_TYPE || 'sqlite';
+    
     db.serialize(() => {
+      // 根据数据库类型使用不同的查询语句
+      let checkColumnSql;
+      
+      if (dbType === 'postgres') {
+        // PostgreSQL: 查询 information_schema
+        checkColumnSql = `
+          SELECT column_name 
+          FROM information_schema.columns 
+          WHERE table_name = 'tokens' AND column_name = 'user_id'
+        `;
+      } else {
+        // SQLite: 使用 PRAGMA
+        checkColumnSql = "PRAGMA table_info(tokens)";
+      }
+      
       // 检查 user_id 列是否已存在
-      db.all("PRAGMA table_info(tokens)", [], (err, columns) => {
+      db.all(checkColumnSql, [], (err, result) => {
         if (err) {
           console.error('检查表结构失败:', err);
           return reject(err);
         }
         
-        const hasUserId = columns.some(col => col.name === 'user_id');
+        let hasUserId;
+        if (dbType === 'postgres') {
+          // PostgreSQL: 检查是否有返回结果
+          hasUserId = result && result.length > 0;
+        } else {
+          // SQLite: 检查列名
+          hasUserId = result.some(col => col.name === 'user_id');
+        }
         
         if (hasUserId) {
           console.log('✓ user_id 字段已存在，跳过迁移');
@@ -30,6 +54,11 @@ function migrateDatabase() {
           'ALTER TABLE tokens ADD COLUMN user_id INTEGER',
           (err) => {
             if (err) {
+              // 如果错误是因为列已存在，忽略错误
+              if (err.message && err.message.includes('already exists')) {
+                console.log('✓ user_id 字段已存在');
+                return resolve();
+              }
               console.error('添加 user_id 字段失败:', err);
               return reject(err);
             }
