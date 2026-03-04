@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Form, Input, Button, message, Card } from 'antd';
-import { UserOutlined, LockOutlined, SafetyOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { Form, Input, Button, message, Card, Divider, Space } from 'antd';
+import { UserOutlined, LockOutlined, SafetyOutlined, CloudOutlined } from '@ant-design/icons';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import api from '../services/api';
 import './Login.css';
 
 const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState(false);
   const [captchaUrl, setCaptchaUrl] = useState('');
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { login } = useAuthStore();
 
   const refreshCaptcha = () => {
@@ -19,7 +21,31 @@ const Login: React.FC = () => {
 
   useEffect(() => {
     refreshCaptcha();
-  }, []);
+    
+    // 检查 OAuth 回调参数
+    const token = searchParams.get('token');
+    const success = searchParams.get('success');
+    const error = searchParams.get('error');
+    
+    if (error) {
+      message.error(`OAuth 登录失败: ${error}`);
+    } else if (token && success) {
+      // OAuth 登录成功
+      // 解析 JWT 获取用户信息
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        login(token, {
+          id: payload.id,
+          username: payload.username,
+          role: payload.role
+        });
+        message.success('OAuth 登录成功');
+        navigate('/');
+      } catch (err) {
+        message.error('Token 解析失败');
+      }
+    }
+  }, [searchParams, login, navigate]);
 
   const onFinish = async (values: any) => {
     setLoading(true);
@@ -33,6 +59,20 @@ const Login: React.FC = () => {
       refreshCaptcha();
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleOAuthLogin = async () => {
+    setOauthLoading(true);
+    try {
+      const response = await api.get('/api/auth/oauth/initiate');
+      const { authUrl } = response.data;
+      
+      // 跳转到 AWS OAuth 授权页面
+      window.location.href = authUrl;
+    } catch (error: any) {
+      message.error(error.response?.data?.error || 'OAuth 初始化失败');
+      setOauthLoading(false);
     }
   };
 
@@ -140,8 +180,26 @@ const Login: React.FC = () => {
           </Form.Item>
         </Form>
 
+        <Divider plain>或</Divider>
+
+        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          <Button
+            icon={<CloudOutlined />}
+            onClick={handleOAuthLogin}
+            loading={oauthLoading}
+            className="oauth-button"
+            block
+            size="large"
+          >
+            使用 AWS OAuth 登录
+          </Button>
+        </Space>
+
         <div className="login-footer">
           <p>默认账号：admin / admin123</p>
+          <p style={{ fontSize: '12px', color: '#888', marginTop: '8px' }}>
+            OAuth 登录将自动获取 AWS refresh token
+          </p>
         </div>
       </Card>
 

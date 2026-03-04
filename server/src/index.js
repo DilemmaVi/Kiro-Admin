@@ -3,6 +3,7 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const config = require('./config/config');
 const { db, initDatabase, dbPath } = require('./config/database');
+const { migrateDatabase } = require('./utils/migrate');
 
 const authRoutes = require('./routes/auth');
 const tokenRoutes = require('./routes/tokens');
@@ -57,16 +58,18 @@ app.use((err, req, res, next) => {
 
 // 初始化数据库并启动服务器
 initDatabase()
+  .then(() => migrateDatabase())
   .then(() => {
     app.listen(config.port, () => {
       console.log(`🚀 Kiro Admin Server 运行在 http://localhost:${config.port}`);
       console.log(`📊 数据库位置: ${dbPath}`);
       console.log(`🔗 CORS允许来源: ${config.corsOrigins.join(', ')}`);
+      console.log(`🔐 OAuth 回调地址: ${process.env.OAUTH_REDIRECT_URI || 'http://localhost:3001/api/auth/oauth/callback'}`);
       console.log(`✨ 管理后台已就绪`);
     });
   })
   .catch((err) => {
-    console.error('数据库初始化失败:', err);
+    console.error('服务器启动失败:', err);
     process.exit(1);
   });
 

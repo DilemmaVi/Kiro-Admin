@@ -47,8 +47,10 @@ function initDatabase() {
           disabled INTEGER DEFAULT 0,
           usage_count INTEGER DEFAULT 0,
           last_used DATETIME,
+          user_id INTEGER,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id)
         )
       `, (err) => {
         if (err) console.error('创建tokens表失败:', err);
