@@ -1,4 +1,4 @@
-const { db } = require('../config/database');
+const { db } = require('../config/database-adapter');
 const axios = require('axios');
 const config = require('../config/config');
 

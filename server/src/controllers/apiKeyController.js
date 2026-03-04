@@ -1,4 +1,4 @@
-const { db } = require('../config/database');
+const { db } = require('../config/database-adapter');
 
 // 获取所有API密钥
 exports.getAllApiKeys = (req, res) => {

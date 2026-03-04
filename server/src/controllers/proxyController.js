@@ -1,6 +1,6 @@
 const axios = require('axios');
 const crypto = require('crypto');
-const { db } = require('../config/database');
+const { db } = require('../config/database-adapter');
 const awsApi = require('../utils/awsApi');
 const EventStreamParser = require('../utils/eventStreamParser');
 

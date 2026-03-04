@@ -1,4 +1,4 @@
-const { db } = require('../config/database');
+const { db } = require('../config/database-adapter');
 
 /**
  * 数据库迁移脚本

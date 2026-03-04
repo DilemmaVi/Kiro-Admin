@@ -1,4 +1,4 @@
-const { db } = require('../config/database');
+const { db } = require('../config/database-adapter');
 const awsApi = require('../utils/awsApi');
 
 // Token 有效性检测（调用真实的 AWS API）

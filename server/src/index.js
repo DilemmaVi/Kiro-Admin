@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const config = require('./config/config');
-const { db, initDatabase, dbPath } = require('./config/database');
+const { db, initDatabase } = require('./config/database-adapter');
 const { migrateDatabase } = require('./utils/migrate');
 
 const authRoutes = require('./routes/auth');
@@ -60,9 +60,15 @@ app.use((err, req, res, next) => {
 initDatabase()
   .then(() => migrateDatabase())
   .then(() => {
+    const dbType = process.env.DB_TYPE || 'sqlite';
+    const dbInfo = dbType === 'postgres' 
+      ? `${process.env.DB_POSTGRESDB_HOST}:${process.env.DB_POSTGRESDB_PORT}/${process.env.DB_POSTGRESDB_DATABASE}`
+      : (process.env.DB_PATH || './data/kiro.db');
+    
     app.listen(config.port, () => {
       console.log(`🚀 Kiro Admin Server 运行在 http://localhost:${config.port}`);
-      console.log(`📊 数据库位置: ${dbPath}`);
+      console.log(`📊 数据库类型: ${dbType.toUpperCase()}`);
+      console.log(`📊 数据库位置: ${dbInfo}`);
       console.log(`🔗 CORS允许来源: ${config.corsOrigins.join(', ')}`);
       console.log(`🔐 OAuth 回调地址: ${process.env.OAUTH_REDIRECT_URI || 'http://localhost:3001/api/auth/oauth/callback'}`);
       console.log(`✨ 管理后台已就绪`);

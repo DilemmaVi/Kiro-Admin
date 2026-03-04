@@ -1,4 +1,4 @@
-const { db } = require('../config/database');
+const { db } = require('../config/database-adapter');
 
 // API 密钥认证中间件
 const apiKeyAuth = (req, res, next) => {

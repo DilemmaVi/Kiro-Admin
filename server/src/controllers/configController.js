@@ -1,4 +1,4 @@
-const { db } = require('../config/database');
+const { db } = require('../config/database-adapter');
 
 // 获取所有系统配置
 exports.getAllConfigs = (req, res) => {
