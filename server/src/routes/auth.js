@@ -9,9 +9,9 @@ router.get('/captcha', authController.getCaptcha);
 router.post('/login', authController.login);
 router.post('/change-password', authMiddleware, authController.changePassword);
 
-// OAuth 登录
-router.get('/oauth/initiate', oauthController.initiateOAuth);
-router.get('/oauth/callback', oauthController.handleOAuthCallback);
+// AWS SSO 设备授权登录
+router.post('/device-auth/initiate', oauthController.initiateDeviceAuth);
+router.post('/device-auth/poll', oauthController.pollAuthStatus);
 router.get('/oauth/status', authMiddleware, oauthController.getOAuthStatus);
 
 module.exports = router;

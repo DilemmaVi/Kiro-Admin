@@ -3,10 +3,12 @@
 <div align="center">
 
 ![Kiro Admin](https://img.shields.io/badge/Kiro-Admin-blue)
-![Version](https://img.shields.io/badge/version-1.0.0-green)
+![Version](https://img.shields.io/badge/version-2.0.0-green)
 ![License](https://img.shields.io/badge/license-MIT-orange)
 
 **AI 代理管理平台 - 完整的 AWS CodeWhisperer API 代理服务**
+
+**✨ 新增：AWS SSO 设备授权登录，自动获取 refresh token**
 
 [功能特性](#功能特性) • [快速开始](#快速开始) • [安装教程](#安装教程) • [使用指南](#使用指南) • [API 文档](#api-文档)
 
@@ -17,6 +19,13 @@
 ## 📖 简介
 
 Kiro Admin 是一个功能完整的 AI 代理管理平台，提供 Web 管理界面和 API 代理服务。它可以将 AWS CodeWhisperer API 代理为标准的 Anthropic Messages API 和 OpenAI Chat Completions API 格式，让您的应用程序可以轻松接入 AI 能力。
+
+### 🆕 v2.0 新特性
+
+- 🔐 **AWS SSO 设备授权登录** - 使用 AWS Builder ID 一键登录
+- 🔄 **自动获取 refresh token** - 无需手动输入，自动存储
+- 👥 **多用户支持** - 每个用户独立的 token 管理
+- 🔒 **更安全的授权流程** - 基于 OAuth 2.0 Device Authorization Grant
 
 ### 核心功能
 

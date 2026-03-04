@@ -1,74 +1,37 @@
 const axios = require('axios');
 const crypto = require('crypto');
 
-// AWS OAuth 配置
-const AWS_OAUTH_CONFIG = {
-  // AWS SSO OAuth 端点
-  authorizationEndpoint: 'https://prod.us-east-1.auth.desktop.kiro.dev/authorize',
-  tokenEndpoint: 'https://prod.us-east-1.auth.desktop.kiro.dev/token',
+// AWS SSO OIDC 配置
+const AWS_SSO_CONFIG = {
+  // AWS SSO OIDC 端点
+  region: 'us-east-1',
+  registerClientEndpoint: 'https://oidc.us-east-1.amazonaws.com/client/register',
+  deviceAuthorizationEndpoint: 'https://oidc.us-east-1.amazonaws.com/device_authorization',
+  tokenEndpoint: 'https://oidc.us-east-1.amazonaws.com/token',
   refreshEndpoint: 'https://prod.us-east-1.auth.desktop.kiro.dev/refreshToken',
   
-  // 客户端配置（模拟 Kiro 客户端）
-  clientId: 'kiro-desktop-client',
-  clientType: 'public', // public client 不需要 client_secret
+  // Kiro 客户端配置
+  clientName: 'kiro-web-client',
+  clientType: 'public',
+  grantTypes: ['urn:ietf:params:oauth:grant-type:device_code', 'refresh_token'],
   
-  // 重定向 URI
-  redirectUri: process.env.OAUTH_REDIRECT_URI || 'http://localhost:3001/api/auth/oauth/callback',
-  
-  // Scopes
-  scopes: ['codewhisperer:completions', 'codewhisperer:analysis']
+  // AWS Builder ID 起始 URL
+  startUrl: 'https://view.awsapps.com/start'
 };
 
 /**
- * 生成 PKCE 验证码
+ * 注册 OIDC 客户端
+ * 这一步是必需的，用于获取 client_id 和 client_secret
  */
-function generatePKCE() {
-  // 生成 code_verifier (43-128 字符的随机字符串)
-  const codeVerifier = crypto.randomBytes(32).toString('base64url');
-  
-  // 生成 code_challenge (code_verifier 的 SHA256 hash)
-  const codeChallenge = crypto
-    .createHash('sha256')
-    .update(codeVerifier)
-    .digest('base64url');
-  
-  return {
-    codeVerifier,
-    codeChallenge,
-    codeChallengeMethod: 'S256'
-  };
-}
-
-/**
- * 生成 OAuth 授权 URL
- */
-function generateAuthorizationUrl(state, pkce) {
-  const params = new URLSearchParams({
-    response_type: 'code',
-    client_id: AWS_OAUTH_CONFIG.clientId,
-    redirect_uri: AWS_OAUTH_CONFIG.redirectUri,
-    scope: AWS_OAUTH_CONFIG.scopes.join(' '),
-    state: state,
-    code_challenge: pkce.codeChallenge,
-    code_challenge_method: pkce.codeChallengeMethod
-  });
-  
-  return `${AWS_OAUTH_CONFIG.authorizationEndpoint}?${params.toString()}`;
-}
-
-/**
- * 使用授权码交换 token
- */
-async function exchangeCodeForToken(code, codeVerifier) {
+async function registerClient() {
   try {
     const response = await axios.post(
-      AWS_OAUTH_CONFIG.tokenEndpoint,
+      AWS_SSO_CONFIG.registerClientEndpoint,
       {
-        grant_type: 'authorization_code',
-        code: code,
-        redirect_uri: AWS_OAUTH_CONFIG.redirectUri,
-        client_id: AWS_OAUTH_CONFIG.clientId,
-        code_verifier: codeVerifier
+        clientName: AWS_SSO_CONFIG.clientName,
+        clientType: AWS_SSO_CONFIG.clientType,
+        grantTypes: AWS_SSO_CONFIG.grantTypes,
+        scopes: ['sso:account:access']
       },
       {
         headers: {
@@ -79,15 +42,112 @@ async function exchangeCodeForToken(code, codeVerifier) {
     );
     
     return {
-      accessToken: response.data.accessToken || response.data.access_token,
-      refreshToken: response.data.refreshToken || response.data.refresh_token,
-      expiresIn: response.data.expiresIn || response.data.expires_in || 3600,
-      tokenType: response.data.tokenType || response.data.token_type || 'Bearer'
+      clientId: response.data.clientId,
+      clientSecret: response.data.clientSecret,
+      clientIdIssuedAt: response.data.clientIdIssuedAt,
+      clientSecretExpiresAt: response.data.clientSecretExpiresAt
     };
   } catch (error) {
-    console.error('Token exchange error:', error.response?.data || error.message);
-    throw new Error(`Token 交换失败: ${error.response?.data?.error_description || error.message}`);
+    console.error('Client registration error:', error.response?.data || error.message);
+    throw new Error(`客户端注册失败: ${error.response?.data?.error_description || error.message}`);
   }
+}
+
+/**
+ * 启动设备授权流程
+ * 返回用户需要访问的 URL 和验证码
+ */
+async function startDeviceAuthorization(clientId, clientSecret) {
+  try {
+    const response = await axios.post(
+      AWS_SSO_CONFIG.deviceAuthorizationEndpoint,
+      {
+        clientId: clientId,
+        clientSecret: clientSecret,
+        startUrl: AWS_SSO_CONFIG.startUrl
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
+    
+    return {
+      deviceCode: response.data.deviceCode,
+      userCode: response.data.userCode,
+      verificationUri: response.data.verificationUri,
+      verificationUriComplete: response.data.verificationUriComplete,
+      expiresIn: response.data.expiresIn,
+      interval: response.data.interval || 5
+    };
+  } catch (error) {
+    console.error('Device authorization error:', error.response?.data || error.message);
+    throw new Error(`设备授权失败: ${error.response?.data?.error_description || error.message}`);
+  }
+}
+
+/**
+ * 轮询获取 token
+ * 在用户完成授权后，使用 device_code 获取 token
+ */
+async function pollForToken(clientId, clientSecret, deviceCode, interval = 5, maxAttempts = 60) {
+  let attempts = 0;
+  
+  while (attempts < maxAttempts) {
+    attempts++;
+    
+    try {
+      const response = await axios.post(
+        AWS_SSO_CONFIG.tokenEndpoint,
+        {
+          clientId: clientId,
+          clientSecret: clientSecret,
+          grantType: 'urn:ietf:params:oauth:grant-type:device_code',
+          deviceCode: deviceCode
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          timeout: 10000
+        }
+      );
+      
+      // 成功获取 token
+      return {
+        accessToken: response.data.accessToken,
+        refreshToken: response.data.refreshToken,
+        expiresIn: response.data.expiresIn,
+        tokenType: response.data.tokenType || 'Bearer'
+      };
+    } catch (error) {
+      const errorCode = error.response?.data?.error;
+      
+      if (errorCode === 'authorization_pending') {
+        // 用户还未完成授权，继续等待
+        await new Promise(resolve => setTimeout(resolve, interval * 1000));
+        continue;
+      } else if (errorCode === 'slow_down') {
+        // 请求太频繁，增加等待时间
+        interval = interval + 5;
+        await new Promise(resolve => setTimeout(resolve, interval * 1000));
+        continue;
+      } else if (errorCode === 'expired_token') {
+        // 设备码已过期
+        throw new Error('设备授权码已过期，请重新开始');
+      } else if (errorCode === 'access_denied') {
+        // 用户拒绝授权
+        throw new Error('用户拒绝授权');
+      } else {
+        // 其他错误
+        throw new Error(`Token 获取失败: ${error.response?.data?.error_description || error.message}`);
+      }
+    }
+  }
+  
+  throw new Error('授权超时，请重新尝试');
 }
 
 /**
@@ -96,7 +156,7 @@ async function exchangeCodeForToken(code, codeVerifier) {
 async function refreshAccessToken(refreshToken) {
   try {
     const response = await axios.post(
-      AWS_OAUTH_CONFIG.refreshEndpoint,
+      AWS_SSO_CONFIG.refreshEndpoint,
       {
         refreshToken: refreshToken
       },
@@ -153,10 +213,10 @@ async function validateAccessToken(accessToken) {
 }
 
 module.exports = {
-  AWS_OAUTH_CONFIG,
-  generatePKCE,
-  generateAuthorizationUrl,
-  exchangeCodeForToken,
+  AWS_SSO_CONFIG,
+  registerClient,
+  startDeviceAuthorization,
+  pollForToken,
   refreshAccessToken,
   validateAccessToken
 };

@@ -2,9 +2,9 @@ const { db } = require('../config/database');
 const jwt = require('jsonwebtoken');
 const config = require('../config/config');
 const {
-  generatePKCE,
-  generateAuthorizationUrl,
-  exchangeCodeForToken,
+  registerClient,
+  startDeviceAuthorization,
+  pollForToken,
   validateAccessToken
 } = require('../utils/oauthHelper');
 
@@ -15,81 +15,133 @@ const oauthSessions = new Map();
 setInterval(() => {
   const now = Date.now();
   for (const [key, value] of oauthSessions.entries()) {
-    if (now - value.timestamp > 10 * 60 * 1000) { // 10分钟过期
+    if (now - value.timestamp > 30 * 60 * 1000) { // 30分钟过期
       oauthSessions.delete(key);
     }
   }
 }, 60 * 1000);
 
 /**
- * 初始化 OAuth 授权流程
+ * 初始化设备授权流程
+ * 返回用户需要访问的 URL 和验证码
  */
-exports.initiateOAuth = (req, res) => {
+exports.initiateDeviceAuth = async (req, res) => {
   try {
-    // 生成 state 和 PKCE
-    const state = require('crypto').randomBytes(16).toString('hex');
-    const pkce = generatePKCE();
+    // 1. 注册客户端（或使用缓存的客户端信息）
+    let clientInfo = oauthSessions.get('client_info');
     
-    // 存储会话信息
-    oauthSessions.set(state, {
-      codeVerifier: pkce.codeVerifier,
+    if (!clientInfo || Date.now() > clientInfo.expiresAt) {
+      console.log('注册新的 OIDC 客户端...');
+      const registration = await registerClient();
+      
+      clientInfo = {
+        clientId: registration.clientId,
+        clientSecret: registration.clientSecret,
+        expiresAt: registration.clientSecretExpiresAt * 1000,
+        timestamp: Date.now()
+      };
+      
+      oauthSessions.set('client_info', clientInfo);
+    }
+    
+    // 2. 启动设备授权
+    const deviceAuth = await startDeviceAuthorization(
+      clientInfo.clientId,
+      clientInfo.clientSecret
+    );
+    
+    // 3. 生成会话 ID
+    const sessionId = require('crypto').randomBytes(16).toString('hex');
+    
+    // 4. 存储会话信息
+    oauthSessions.set(sessionId, {
+      clientId: clientInfo.clientId,
+      clientSecret: clientInfo.clientSecret,
+      deviceCode: deviceAuth.deviceCode,
+      interval: deviceAuth.interval,
+      expiresAt: Date.now() + (deviceAuth.expiresIn * 1000),
       timestamp: Date.now()
     });
     
-    // 生成授权 URL
-    const authUrl = generateAuthorizationUrl(state, pkce);
-    
+    // 5. 返回给前端
     res.json({
-      authUrl,
-      state
+      sessionId: sessionId,
+      userCode: deviceAuth.userCode,
+      verificationUri: deviceAuth.verificationUri,
+      verificationUriComplete: deviceAuth.verificationUriComplete,
+      expiresIn: deviceAuth.expiresIn,
+      interval: deviceAuth.interval
     });
   } catch (error) {
-    console.error('OAuth initiation error:', error);
-    res.status(500).json({ error: 'OAuth 初始化失败' });
+    console.error('Device auth initiation error:', error);
+    res.status(500).json({ 
+      error: '设备授权初始化失败',
+      message: error.message 
+    });
   }
 };
 
 /**
- * OAuth 回调处理
+ * 轮询检查授权状态
+ * 前端定期调用此接口检查用户是否完成授权
  */
-exports.handleOAuthCallback = async (req, res) => {
-  const { code, state, error, error_description } = req.query;
+exports.pollAuthStatus = async (req, res) => {
+  const { sessionId } = req.body;
   
-  // 检查是否有错误
-  if (error) {
-    return res.redirect(`/login?error=${encodeURIComponent(error_description || error)}`);
+  if (!sessionId) {
+    return res.status(400).json({ error: '缺少 sessionId' });
   }
   
-  // 验证必需参数
-  if (!code || !state) {
-    return res.redirect('/login?error=缺少必需参数');
-  }
+  const session = oauthSessions.get(sessionId);
   
-  // 验证 state
-  const session = oauthSessions.get(state);
   if (!session) {
-    return res.redirect('/login?error=无效的会话或会话已过期');
+    return res.status(404).json({ 
+      error: '会话不存在或已过期',
+      status: 'expired'
+    });
   }
   
-  // 删除已使用的会话
-  oauthSessions.delete(state);
+  // 检查是否过期
+  if (Date.now() > session.expiresAt) {
+    oauthSessions.delete(sessionId);
+    return res.json({ 
+      status: 'expired',
+      message: '授权已过期，请重新开始'
+    });
+  }
   
   try {
-    // 使用授权码交换 token
-    const tokens = await exchangeCodeForToken(code, session.codeVerifier);
+    // 尝试获取 token（单次尝试，不阻塞）
+    const tokens = await pollForToken(
+      session.clientId,
+      session.clientSecret,
+      session.deviceCode,
+      session.interval,
+      1 // 只尝试一次
+    );
     
-    // 验证 access token
+    // 成功获取 token
+    oauthSessions.delete(sessionId);
+    
+    // 验证 token
     const validation = await validateAccessToken(tokens.accessToken);
+    
     if (!validation.valid) {
-      return res.redirect('/login?error=Token验证失败');
+      return res.json({
+        status: 'error',
+        message: 'Token 验证失败'
+      });
     }
     
     // 查找或创建用户
-    const userEmail = validation.userInfo?.email || 'oauth_user';
+    const userEmail = validation.userInfo?.email || `aws_user_${Date.now()}`;
     
     db.get('SELECT * FROM users WHERE username = ?', [userEmail], (err, user) => {
       if (err) {
-        return res.redirect('/login?error=数据库错误');
+        return res.status(500).json({ 
+          status: 'error',
+          error: '数据库错误' 
+        });
       }
       
       const handleUserLogin = (userId) => {
@@ -97,23 +149,43 @@ exports.handleOAuthCallback = async (req, res) => {
         db.run(
           `INSERT INTO tokens (auth_type, refresh_token, description, user_id)
            VALUES (?, ?, ?, ?)`,
-          ['Social', tokens.refreshToken, 'OAuth 自动获取', userId],
-          (err) => {
+          ['Social', tokens.refreshToken, 'AWS SSO 设备授权自动获取', userId],
+          function (err) {
             if (err) {
-              console.error('Failed to store refresh token:', err);
+              console.error('❌ 存储 refresh token 失败:', err);
+              return res.status(500).json({
+                status: 'error',
+                error: '存储 token 失败',
+                message: err.message
+              });
             }
+            
+            const tokenId = this.lastID;
+            console.log(`✅ 成功存储 refresh token (ID: ${tokenId}) 到用户 ${userId}`);
+            
+            // 生成 JWT
+            const jwtToken = jwt.sign(
+              { id: userId, username: userEmail, role: 'user' },
+              config.jwtSecret,
+              { expiresIn: config.jwtExpire }
+            );
+            
+            res.json({
+              status: 'success',
+              token: jwtToken,
+              user: {
+                id: userId,
+                username: userEmail,
+                role: 'user'
+              },
+              tokenInfo: {
+                id: tokenId,
+                description: 'AWS SSO 设备授权自动获取',
+                created: true
+              }
+            });
           }
         );
-        
-        // 生成 JWT
-        const jwtToken = jwt.sign(
-          { id: userId, username: userEmail, role: 'user' },
-          config.jwtSecret,
-          { expiresIn: config.jwtExpire }
-        );
-        
-        // 重定向到前端，携带 token
-        res.redirect(`/login?token=${jwtToken}&success=1`);
       };
       
       if (user) {
@@ -131,7 +203,10 @@ exports.handleOAuthCallback = async (req, res) => {
           [userEmail, hashedPassword, 'user'],
           function (err) {
             if (err) {
-              return res.redirect('/login?error=用户创建失败');
+              return res.status(500).json({ 
+                status: 'error',
+                error: '用户创建失败' 
+              });
             }
             handleUserLogin(this.lastID);
           }
@@ -139,8 +214,18 @@ exports.handleOAuthCallback = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('OAuth callback error:', error);
-    res.redirect(`/login?error=${encodeURIComponent(error.message)}`);
+    // 授权待处理或其他错误
+    if (error.message.includes('authorization_pending') || error.message.includes('授权')) {
+      return res.json({
+        status: 'pending',
+        message: '等待用户授权'
+      });
+    }
+    
+    res.json({
+      status: 'error',
+      message: error.message
+    });
   }
 };
 
