@@ -52,11 +52,28 @@ const Login: React.FC = () => {
       setDeviceAuthModal(true);
       setOauthLoading(false);
       
-      // 开始轮询
-      startPolling(authInfo.sessionId);
+      // 自动打开 AWS 授权页面
+      setTimeout(() => {
+        if (authInfo.verificationUriComplete) {
+          window.open(authInfo.verificationUriComplete, '_blank');
+        } else if (authInfo.verificationUri) {
+          window.open(authInfo.verificationUri, '_blank');
+        }
+      }, 500); // 延迟 500ms 确保弹窗已显示
+      
+      // 3秒后自动开始轮询（给用户时间查看验证码）
+      setTimeout(() => {
+        startPolling(authInfo.sessionId);
+      }, 3000);
     } catch (error: any) {
       message.error(error.response?.data?.message || 'AWS 设备授权初始化失败');
       setOauthLoading(false);
+    }
+  };
+
+  const startWaitingForAuth = () => {
+    if (deviceAuthInfo?.sessionId) {
+      startPolling(deviceAuthInfo.sessionId);
     }
   };
 
@@ -278,12 +295,12 @@ const Login: React.FC = () => {
             <>
               <CheckCircleOutlined style={{ fontSize: 48, color: '#52c41a', marginBottom: 20 }} />
               <Paragraph style={{ fontSize: 18, fontWeight: 600, marginBottom: 20 }}>
-                请完成以下步骤：
+                AWS 授权页面已自动打开
               </Paragraph>
               
               <div style={{ textAlign: 'left', background: '#f5f5f5', padding: 20, borderRadius: 8, marginBottom: 20 }}>
                 <div style={{ marginBottom: 15 }}>
-                  <Text strong>1. 复制验证码：</Text>
+                  <Text strong>步骤 1：复制验证码</Text>
                   <div style={{ display: 'flex', alignItems: 'center', marginTop: 8 }}>
                     <Input
                       value={deviceAuthInfo?.userCode}
@@ -302,15 +319,22 @@ const Login: React.FC = () => {
                 </div>
                 
                 <div>
-                  <Text strong>2. 打开授权页面并输入验证码：</Text>
+                  <Text strong>步骤 2：在授权页面输入验证码</Text>
+                  <div style={{ marginTop: 8, padding: 12, background: '#fff', borderRadius: 4, border: '1px solid #d9d9d9' }}>
+                    <Text type="secondary" style={{ fontSize: 13 }}>
+                      • 授权页面已在新标签页打开<br />
+                      • 如未打开，请点击下方按钮手动打开<br />
+                      • 输入验证码并使用 AWS Builder ID 登录
+                    </Text>
+                  </div>
                   <Button
-                    type="primary"
+                    type="default"
                     block
                     size="large"
                     onClick={openVerificationUrl}
                     style={{ marginTop: 8 }}
                   >
-                    打开 AWS 授权页面
+                    手动打开授权页面
                   </Button>
                 </div>
               </div>
