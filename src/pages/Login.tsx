@@ -71,12 +71,6 @@ const Login: React.FC = () => {
     }
   };
 
-  const startWaitingForAuth = () => {
-    if (deviceAuthInfo?.sessionId) {
-      startPolling(deviceAuthInfo.sessionId);
-    }
-  };
-
   const startPolling = async (sessionId: string) => {
     setPolling(true);
     
